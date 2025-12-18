@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: dev
+
+resources:
+  - ../../base
+
+patches:
+  - path: patch.yaml
+
+images:
+  - name: DOCKERHUB_USERNAME/halloween-httpd
+    newName: DOCKERHUB_USERNAME/halloween-httpd
+    newTag: 0.0.1
