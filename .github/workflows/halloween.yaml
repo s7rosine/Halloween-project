@@ -20,6 +20,32 @@ jobs:
 
     steps:
       # -------------------------------------------------
+      # 0) Install Docker on self-hosted runner (if missing)
+      # -------------------------------------------------
+      - name: Install Docker (self-hosted runner)
+        run: |
+          if ! command -v docker >/dev/null 2>&1; then
+            echo "Docker not found. Installing Docker..."
+            sudo apt-get update -y
+            sudo apt-get install -y ca-certificates curl gnupg
+            sudo install -m 0755 -d /etc/apt/keyrings
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+            echo \
+            "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+            $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+            sudo apt-get update -y
+            sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+            sudo systemctl enable --now docker
+          else
+            echo "Docker already installed"
+          fi
+
+          docker version
+
+      # -------------------------------------------------
       # 1) Checkout source code
       # -------------------------------------------------
       - name: Checkout code
@@ -58,10 +84,6 @@ jobs:
       # -------------------------------------------------
       # 5) CODE QUALITY: SonarQube scan
       # -------------------------------------------------
-      # Required secrets:
-      # - SONAR_HOST_URL
-      # - SONAR_TOKEN
-      # - SONAR_PROJECT_KEY
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v5
         env:
@@ -93,9 +115,9 @@ jobs:
       - name: Smoke test container
         run: |
           docker rm -f halloween-test || true
-          docker run -d --name halloween-test -p 8083:80 ${{ env.FULL_IMAGE }}
+          docker run -d --name halloween-test -p 8084:80 ${{ env.FULL_IMAGE }}
           sleep 5
-          curl -I http://localhost:8083
+          curl -I http://localhost:8084
 
       # -------------------------------------------------
       # 8) SECURITY: Trivy image scan
@@ -111,9 +133,6 @@ jobs:
       # -------------------------------------------------
       # 9) Login to Docker Hub (ACCESS TOKEN)
       # -------------------------------------------------
-      # Required secrets:
-      # - DOCKERHUB_USERNAME
-      # - DOCKERHUB_TOKEN
       - name: Login to Docker Hub
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/login-action@v3
