@@ -41,9 +41,11 @@ jobs:
             sudo systemctl enable --now docker
           else
             echo "Docker already installed"
+            sudo systemctl start docker || true
           fi
 
           docker version
+          docker ps
 
       # -------------------------------------------------
       # 1) Checkout source code
@@ -70,19 +72,28 @@ jobs:
           args: detect --source . --redact --verbose
 
       # -------------------------------------------------
-      # 4) SECURITY: Trivy filesystem scan
+      # 4) SECURITY: Install Trivy CLI (replaces trivy-action)
       # -------------------------------------------------
-      - name: Trivy - filesystem scan
-        uses: aquasecurity/trivy-action@0.24.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          format: table
-          severity: CRITICAL
-          exit-code: 0
+      - name: Install Trivy CLI
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y wget apt-transport-https gnupg lsb-release
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update -y
+          sudo apt-get install -y trivy
+          trivy --version
 
       # -------------------------------------------------
-      # 5) CODE QUALITY: SonarQube scan
+      # 5) SECURITY: Trivy filesystem scan (repo)
+      # exit-code: 0 means "do not fail pipeline"
+      # -------------------------------------------------
+      - name: Trivy - filesystem scan (repo)
+        run: |
+          trivy fs --severity CRITICAL --exit-code 0 --no-progress .
+
+      # -------------------------------------------------
+      # 6) CODE QUALITY: SonarQube scan
       # -------------------------------------------------
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v5
@@ -96,7 +107,7 @@ jobs:
             -Dsonar.sourceEncoding=UTF-8
 
       # -------------------------------------------------
-      # 6) Build Docker image locally
+      # 7) Build Docker image locally
       # -------------------------------------------------
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -110,7 +121,7 @@ jobs:
           tags: ${{ env.FULL_IMAGE }}
 
       # -------------------------------------------------
-      # 7) Smoke test the container (docker run + curl)
+      # 8) Smoke test the container (docker run + curl)
       # -------------------------------------------------
       - name: Smoke test container
         run: |
@@ -120,18 +131,15 @@ jobs:
           curl -I http://localhost:8084
 
       # -------------------------------------------------
-      # 8) SECURITY: Trivy image scan
+      # 9) SECURITY: Trivy image scan
+      # exit-code: 1 means "fail pipeline if CRITICAL found"
       # -------------------------------------------------
       - name: Trivy - image scan
-        uses: aquasecurity/trivy-action@0.24.0
-        with:
-          image-ref: ${{ env.FULL_IMAGE }}
-          format: table
-          severity: CRITICAL
-          exit-code: 1
+        run: |
+          trivy image --severity CRITICAL --exit-code 1 --no-progress ${{ env.FULL_IMAGE }}
 
       # -------------------------------------------------
-      # 9) Login to Docker Hub (ACCESS TOKEN)
+      # 10) Login to Docker Hub (ACCESS TOKEN)
       # -------------------------------------------------
       - name: Login to Docker Hub
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -141,7 +149,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       # -------------------------------------------------
-      # 10) Push image to Docker Hub
+      # 11) Push image to Docker Hub
       # -------------------------------------------------
       - name: Push image to Docker Hub
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -149,7 +157,7 @@ jobs:
           docker push ${{ env.FULL_IMAGE }}
 
       # -------------------------------------------------
-      # 11) Cleanup (always runs)
+      # 12) Cleanup (always runs)
       # -------------------------------------------------
       - name: Cleanup test container
         if: always()
