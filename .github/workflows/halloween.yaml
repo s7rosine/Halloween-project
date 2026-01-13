@@ -13,6 +13,8 @@ env:
   IMAGE_NAME: halloween-httpd
   DOCKERFILE_PATH: app/Dockerfile
   BUILD_CONTEXT: app
+  # Put Trivy cache inside the GitHub workspace (usually has more room than /home/ubuntu/.cache)
+  TRIVY_CACHE_DIR: ${{ github.workspace }}/.trivycache
 
 jobs:
   security-build-test-push:
@@ -48,6 +50,34 @@ jobs:
           docker ps
 
       # -------------------------------------------------
+      # 0.5) Free disk space (fix Trivy DB "no space left on device")
+      # -------------------------------------------------
+      - name: Free disk space (runner cleanup)
+        run: |
+          echo "==== Disk before cleanup ===="
+          df -h
+
+          # Clean apt cache
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
+
+          # Clear temp folders
+          sudo rm -rf /tmp/* || true
+          sudo rm -rf /var/tmp/* || true
+
+          # Remove Docker leftovers (this is often the biggest space saver)
+          sudo docker system prune -af --volumes || true
+
+          # Remove old Trivy cache in home (the path that filled up)
+          rm -rf /home/ubuntu/.cache/trivy || true
+
+          # Ensure our workspace cache directory exists
+          mkdir -p "${TRIVY_CACHE_DIR}"
+
+          echo "==== Disk after cleanup ===="
+          df -h
+
+      # -------------------------------------------------
       # 1) Checkout source code
       # -------------------------------------------------
       - name: Checkout code
@@ -72,7 +102,7 @@ jobs:
           args: detect --source . --redact --verbose
 
       # -------------------------------------------------
-      # 4) SECURITY: Install Trivy CLI to replaces trivy-action
+      # 4) SECURITY: Install Trivy CLI (replaces trivy-action)
       # -------------------------------------------------
       - name: Install Trivy CLI
         run: |
@@ -89,7 +119,10 @@ jobs:
       # exit-code: 0 means "do not fail pipeline"
       # -------------------------------------------------
       - name: Trivy - filesystem scan (repo)
+        env:
+          TRIVY_CACHE_DIR: ${{ env.TRIVY_CACHE_DIR }}
         run: |
+          mkdir -p "${TRIVY_CACHE_DIR}"
           trivy fs --severity CRITICAL --exit-code 0 --no-progress .
 
       # -------------------------------------------------
@@ -135,7 +168,10 @@ jobs:
       # exit-code: 1 means "fail pipeline if CRITICAL found"
       # -------------------------------------------------
       - name: Trivy - image scan
+        env:
+          TRIVY_CACHE_DIR: ${{ env.TRIVY_CACHE_DIR }}
         run: |
+          mkdir -p "${TRIVY_CACHE_DIR}"
           trivy image --severity CRITICAL --exit-code 1 --no-progress ${{ env.FULL_IMAGE }}
 
       # -------------------------------------------------
