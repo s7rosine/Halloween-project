@@ -72,7 +72,7 @@ jobs:
           args: detect --source . --redact --verbose
 
       # -------------------------------------------------
-      # 4) SECURITY: Install Trivy CLI (replaces trivy-action)
+      # 4) SECURITY: Install Trivy CLI to replaces trivy-action
       # -------------------------------------------------
       - name: Install Trivy CLI
         run: |
